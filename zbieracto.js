@@ -1,7 +1,8 @@
 javascript:
 /*
-    Asystent Zbieracza z GUI i Ustawieniami v3.4
-    Bezstanowy silnik: zawsze dynamicznie wylicza najwyższy dostępny poziom (jak oryginał).
+    Asystent Zbieracza z GUI i Ustawieniami v3.5
+    - Bezstanowy silnik: zawsze dynamicznie wylicza najwyższy dostępny poziom.
+    - Mobile Fix: kompatybilność z wersją mobilną i aplikacją Plemion (.units-entry-all).
 */
 
 (function() {
@@ -130,7 +131,6 @@ javascript:
     function fillOptimalLevel() {
         let availableUnits = {};
         
-        // Zczytujemy dostępne jednostki na świeżo z ekranu gry
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -138,23 +138,29 @@ javascript:
             }
 
             let field = $(`[name=${unit}]`);
-            if (field.length > 0 && field[0].parentNode.children[1]) {
-                let match = field[0].parentNode.children[1].innerText.match(/\d+/);
-                let available = match ? parseInt(match[0]) : 0;
+            if (field.length > 0) {
+                // MOBILE FIX: Używamy querySelector zamiast sztywnego indexu children[1]
+                let entryNode = field[0].parentNode.querySelector('.units-entry-all');
                 
-                let uSet = settings.units[unit];
-                if (available > uSet.untouchable) available -= uSet.untouchable;
-                else available = 0;
-                
-                if (available > uSet.max) available = uSet.max;
+                if (entryNode) {
+                    let match = entryNode.innerText.match(/\d+/);
+                    let available = match ? parseInt(match[0]) : 0;
+                    
+                    let uSet = settings.units[unit];
+                    if (available > uSet.untouchable) available -= uSet.untouchable;
+                    else available = 0;
+                    
+                    if (available > uSet.max) available = uSet.max;
 
-                availableUnits[unit] = available;
+                    availableUnits[unit] = available;
+                } else {
+                    availableUnits[unit] = 0;
+                }
             } else {
                 availableUnits[unit] = 0;
             }
         });
 
-        // Weryfikacja faktycznie wolnych poziomów z logiki Plemion
         let availableLevels = [];
         if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
             let opts = window.ScavengeScreen.village.options;
@@ -173,7 +179,6 @@ javascript:
         
         availableLevels.sort((a, b) => a - b);
 
-        // Odrzucenie 1. poziomu z ustawień (z zabezpieczeniem jak w oryginale)
         if (settings.global.skip_level_1 === 1) {
             if (availableLevels.includes(0) && availableLevels.length > 1) {
                 availableLevels = availableLevels.filter(lvl => lvl !== 0);
@@ -188,10 +193,9 @@ javascript:
             return;
         }
 
-        // Kalkulacja proporcji (dokładnie jak w oryginale dla równego czasu)
         let packs = [15, 6, 3, 2];
         let totalWeight = availableLevels.reduce((sum, lvl) => sum + packs[lvl], 0);
-        let targetLvl = availableLevels[availableLevels.length - 1]; // Wybieramy najwyższy możliwy
+        let targetLvl = availableLevels[availableLevels.length - 1]; 
         let weight = packs[targetLvl];
         let ratio = weight / totalWeight;
 
@@ -200,7 +204,6 @@ javascript:
 
         units.forEach(unit => {
             if (availableUnits[unit] > 0) {
-                // Jeśli to ostatni poziom w kolejce, bierzemy po prostu 100% tego co jest, żeby uniknąć gubienia resztek w ułamkach
                 let amount = (availableLevels.length === 1) ? availableUnits[unit] : Math.round(availableUnits[unit] * ratio);
                 assignedAmounts[unit] = amount;
                 currentCapacity += amount * unitsCapacity[unit];
@@ -209,7 +212,6 @@ javascript:
             }
         });
 
-        // Ewentualne cięcie pod max_ressources
         let maxRes = settings.global.max_ressources;
         if (maxRes > 0 && currentCapacity > maxRes) {
             let capRatio = maxRes / currentCapacity;

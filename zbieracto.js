@@ -1,36 +1,43 @@
-javascript:
 /*
-    Asystent Zbieracza z GUI i Ustawieniami
-    Zapamiętuje ustawienia w localStorage przeglądarki.
+    Asystent Zbieracza z GUI i Ustawieniami v3.2
+    Pełna wersja: równe rozkładanie czasu, brak resztek, obsługa max_ressources.
 */
 
 (function() {
+    // Sprawdzenie czy jesteśmy na właściwej stronie
     if (window.location.href.indexOf('screen=place') === -1 || window.location.href.indexOf('mode=scavenge') === -1) {
         UI.InfoMessage('Skrypt działa tylko w placu w zakładce zbieractwo!', 3000, 'error');
         return;
     }
 
-    // Jeśli okienko jest otwarte, kliknięcie skryptu je zamyka
-    if ($('#scavenge_gui_window').length > 0) {
-        $('#scavenge_gui_window').remove();
+    // Zamknięcie okna jeśli już istnieje (toggle)
+    if (document.getElementById('scavenge_gui_window')) {
+        document.getElementById('scavenge_gui_window').remove();
         return;
     }
 
     const units = ['spear', 'sword', 'axe', 'archer', 'light', 'marcher', 'heavy'];
     const unitNames = {spear: 'Pikinier', sword: 'Miecznik', axe: 'Topornik', archer: 'Łucznik', light: 'Lekka', marcher: 'Łucz. konny', heavy: 'Ciężka'};
+    const unitsCapacity = {spear: 25, sword: 15, axe: 10, archer: 10, light: 80, marcher: 50, heavy: 50};
 
-    // Domyślne wartości przy pierwszym uruchomieniu
+    // Domyślne ustawienia
     let defaultSettings = {
         global: { archers: 1, skip_level_1: 0, max_ressources: 999999 },
         units: {}
     };
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
-    // Wczytanie zapisanych ustawień (jeśli istnieją)
+    // Wczytywanie ustawień z localStorage
     let saved = localStorage.getItem('TW_Scavenge_Settings_v3');
     let settings = saved ? JSON.parse(saved) : defaultSettings;
 
-    // Funkcja budująca główne okno
+    // Zabezpieczenie brakujących kluczy przy aktualizacji ze starszych wersji
+    if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
+    units.forEach(u => {
+        if (!settings.units[u]) settings.units[u] = { untouchable: 0, max: 99999 };
+    });
+
+    // Główna funkcja budująca interfejs
     function renderUI() {
         let html = `
             <div id="scavenge_gui_window" style="position:fixed; top:80px; right:20px; width: 320px; background:#e3d5b3; border:2px solid #7d510f; padding:12px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
@@ -57,7 +64,7 @@ javascript:
                         </tr>
         `;
 
-        // Generowanie wierszy dla jednostek
+        // Generowanie wierszy dla każdej jednostki
         units.forEach(unit => {
             if (!settings.global.archers && (unit === 'archer' || unit === 'marcher')) return;
             html += `
@@ -80,15 +87,16 @@ javascript:
             </div>
         `;
 
+        // Wstawienie HTML do strony
         $('body').append(html);
         
-        // Obsługa interfejsu
+        // Bindowanie zdarzeń
         $('#scav_close').click(function() { $('#scavenge_gui_window').remove(); });
         $('#scav_save_settings').click(saveSettings);
-
-        // Zmiana checkboxa łuczników wymaga przeładowania tabelki
+        
+        // Zmiana archers na żywo przeładowuje widok tabelki
         $('#scav_archers').change(function() {
-            saveSettings(false); // Zapisz bez komunikatu
+            saveSettings(false);
             $('#scavenge_gui_window').remove();
             renderUI();
         });
@@ -96,7 +104,7 @@ javascript:
         calculateAndRenderActions();
     }
 
-    // Zapisywanie ustawień do pamięci przeglądarki
+    // Funkcja zapisu
     function saveSettings(showMessage = true) {
         settings.global.archers = $('#scav_archers').is(':checked') ? 1 : 0;
         settings.global.skip_level_1 = $('#scav_skip_1').is(':checked') ? 1 : 0;
@@ -117,11 +125,12 @@ javascript:
         }
     }
 
-    // Przeliczanie wojsk i renderowanie przycisków
+    // Funkcja przeliczająca dostępne wojsko i renderująca przyciski rozkładu
     function calculateAndRenderActions() {
         let availableUnits = {};
         let totalUsableUnits = 0;
 
+        // Filtrowanie i obliczanie dostępnych jednostek na podstawie DOM i ustawień
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -156,7 +165,7 @@ javascript:
         } else {
             units.forEach(unit => {
                 if(availableUnits[unit] > 0) {
-                    html += `<li style="display:inline-block; margin-right:10px;"><span class="icon header ${unit}"></span> <b>${availableUnits[unit]}</b></li>`;
+                    html += `<li style="display:inline-block; margin-right:10px;"><img src="${window.image_base}unit/unit_${unit}.png" style="width:14px; height:14px; vertical-align:middle;"> <b>${availableUnits[unit]}</b></li>`;
                 }
             });
         }
@@ -164,64 +173,85 @@ javascript:
 
         if (free_levels === 0) {
             html += `<div style="color:red; font-weight:bold; font-size: 12px; text-align:center; padding: 10px 0;">Brak wolnych poziomów!</div>`;
+            $('#scav_action_area').html(html);
         } else {
-            let packs = [15, 6, 3, 2]; // Wagi czasowe
+            let packs = [15, 6, 3, 2];
             let levelNames = ["Leniwe (1)", "Skromne (2)", "Sprytne (3)", "Wielkie (4)"];
             let activeWeights = [];
             
-            // Logika pomijania poziomu 1
             let startLevel = (settings.global.skip_level_1 === 1 && free_levels > 1) ? 1 : 0;
             
             for (let i = startLevel; i < free_levels + startLevel && i < 4; i++) {
                 activeWeights.push({ weight: packs[i], name: levelNames[i] });
             }
             
-            let totalWeight = activeWeights.reduce((a, b) => a + b.weight, 0);
+            let currentTotalWeight = activeWeights.reduce((a, b) => a + b.weight, 0);
 
             html += `<div style="margin-top: 10px;"><strong>Rozdziel (Równy czas):</strong></div>`;
             activeWeights.forEach((lvl, index) => {
-                let ratio = lvl.weight / totalWeight;
-                
                 html += `
                     <div style="border:1px solid #c1a264; padding:5px; margin-bottom:5px; background:#f4e4c1; border-radius:4px;">
-                        <button class="btn fill-level-btn" data-ratio="${ratio}" style="width:100%; padding:6px; font-size:11px; font-weight:bold; cursor:pointer;">
+                        <button class="btn fill-level-btn" data-weight="${lvl.weight}" style="width:100%; padding:6px; font-size:11px; font-weight:bold; cursor:pointer;">
                             Wypełnij: ${lvl.name}
                         </button>
                     </div>
                 `;
             });
-        }
 
-        $('#scav_action_area').html(html);
+            $('#scav_action_area').html(html);
 
-        // Funkcja wpisująca w inputy Plemion
-        function fillInput(unit, number) {
-            let field = $(`[name=${unit}]`);
-            if(field.length > 0) {
-                field.trigger('focus').trigger('keydown').val(number).trigger('keyup').trigger('change').blur();
-            }
-        }
-
-        // Akcje przycisków na konkretne poziomy
-        $('.fill-level-btn').off('click').on('click', function() {
-            let r = parseFloat($(this).attr('data-ratio'));
-            
-            units.forEach(unit => {
-                if (availableUnits[unit] > 0) {
-                    let amount = Math.floor(availableUnits[unit] * r);
-                    fillInput(unit, amount);
-                    availableUnits[unit] -= amount; 
-                } else {
-                    fillInput(unit, 0);
+            // Funkcja wpisująca wartości do Plemion
+            function fillInput(unit, number) {
+                let field = $(`[name=${unit}]`);
+                if(field.length > 0) {
+                    field.trigger('focus').trigger('keydown').val(number).trigger('keyup').trigger('change').blur();
                 }
+            }
+
+            let dynamicWeight = currentTotalWeight;
+
+            // Główna logika rozdzielania wojsk po kliknięciu
+            $('.fill-level-btn').off('click').on('click', function() {
+                let w = parseFloat($(this).attr('data-weight'));
+                let ratio = w / dynamicWeight;
+                
+                let assignedAmounts = {};
+                let currentCapacity = 0;
+
+                // Obliczanie proporcji dla danego kliknięcia
+                units.forEach(unit => {
+                    if (availableUnits[unit] > 0) {
+                        let amount = Math.round(availableUnits[unit] * ratio);
+                        assignedAmounts[unit] = amount;
+                        currentCapacity += amount * unitsCapacity[unit];
+                    } else {
+                        assignedAmounts[unit] = 0;
+                    }
+                });
+
+                // Sprawdzenie i ewentualne cięcie limitu surowców
+                let maxRes = settings.global.max_ressources;
+                if (maxRes > 0 && currentCapacity > maxRes) {
+                    let capRatio = maxRes / currentCapacity;
+                    units.forEach(unit => {
+                        assignedAmounts[unit] = Math.floor(assignedAmounts[unit] * capRatio);
+                    });
+                }
+                
+                // Fizyczne wpisanie do inputów i odjęcie użytych wojsk od puli
+                units.forEach(unit => {
+                    fillInput(unit, assignedAmounts[unit]);
+                    availableUnits[unit] -= assignedAmounts[unit]; 
+                });
+                
+                // Aktualizacja wagi, by kolejny klik użył 100% z tego, co zostało
+                dynamicWeight -= w; 
+                $(this).parent().fadeOut(200);
             });
-            
-            // Po kliknięciu ukryj przycisk, aby go nie kliknąć omyłkowo podwójnie
-            $(this).parent().fadeOut(200);
-        });
+        }
     }
 
-    // Uruchomienie skryptu -> renderowanie widoku
+    // Uruchomienie interfejsu
     renderUI();
 
 })();

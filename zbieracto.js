@@ -1,16 +1,15 @@
+javascript:
 /*
-    Asystent Zbieracza z GUI i Ustawieniami v3.3
-    Poprawione: Ignorowanie ZABLOKOWANYCH i AKTUALNIE ZAJĘTYCH poziomów.
+    Asystent Zbieracza z GUI i Ustawieniami v3.4
+    Bezstanowy silnik: zawsze dynamicznie wylicza najwyższy dostępny poziom (jak oryginał).
 */
 
 (function() {
-    // Sprawdzenie czy jesteśmy na właściwej stronie
     if (window.location.href.indexOf('screen=place') === -1 || window.location.href.indexOf('mode=scavenge') === -1) {
         UI.InfoMessage('Skrypt działa tylko w placu w zakładce zbieractwo!', 3000, 'error');
         return;
     }
 
-    // Zamknięcie okna jeśli już istnieje (toggle)
     if (document.getElementById('scavenge_gui_window')) {
         document.getElementById('scavenge_gui_window').remove();
         return;
@@ -20,24 +19,20 @@
     const unitNames = {spear: 'Pikinier', sword: 'Miecznik', axe: 'Topornik', archer: 'Łucznik', light: 'Lekka', marcher: 'Łucz. konny', heavy: 'Ciężka'};
     const unitsCapacity = {spear: 25, sword: 15, axe: 10, archer: 10, light: 80, marcher: 50, heavy: 50};
 
-    // Domyślne ustawienia
     let defaultSettings = {
         global: { archers: 1, skip_level_1: 0, max_ressources: 999999 },
         units: {}
     };
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
-    // Wczytywanie ustawień z localStorage
     let saved = localStorage.getItem('TW_Scavenge_Settings_v3');
     let settings = saved ? JSON.parse(saved) : defaultSettings;
 
-    // Zabezpieczenie brakujących kluczy przy aktualizacji
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
     units.forEach(u => {
         if (!settings.units[u]) settings.units[u] = { untouchable: 0, max: 99999 };
     });
 
-    // Główna funkcja budująca interfejs
     function renderUI() {
         let html = `
             <div id="scavenge_gui_window" style="position:fixed; top:80px; right:20px; width: 320px; background:#e3d5b3; border:2px solid #7d510f; padding:12px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
@@ -77,12 +72,18 @@
 
         html += `
                     </table>
-                    <button id="scav_save_settings" class="btn" style="width: 100%; margin-top: 8px; padding: 5px; font-size:11px;">Zapisz i Przelicz</button>
+                    <button id="scav_save_settings" class="btn" style="width: 100%; margin-top: 8px; padding: 5px; font-size:11px;">Zapisz ustawienia</button>
                 </div>
                 <hr style="border-color:#c1a264; margin: 10px 0;">
                 
-                <div id="scav_action_area" style="font-size: 11px;">
+                <div style="text-align:center; padding: 5px 0;">
+                    <button id="scav_fill_highest" class="btn" style="width:100%; padding:10px; font-size:13px; font-weight:bold; cursor:pointer; background-color:#5c3a1b; color:white; border: 1px solid #402000; border-radius: 4px;">
+                        Wypełnij: Najwyższy Wolny
+                    </button>
+                    <div style="font-size:9px; margin-top:6px; color:#7d510f;">
+                        Wciśnij -> wyślij w grze -> wciśnij ponownie.
                     </div>
+                </div>
             </div>
         `;
 
@@ -97,7 +98,7 @@
             renderUI();
         });
 
-        calculateAndRenderActions();
+        $('#scav_fill_highest').click(fillOptimalLevel);
     }
 
     function saveSettings(showMessage = true) {
@@ -116,14 +117,20 @@
         
         if (showMessage) {
             UI.SuccessMessage('Ustawienia zapisane!', 2000);
-            calculateAndRenderActions();
         }
     }
 
-    function calculateAndRenderActions() {
-        let availableUnits = {};
-        let totalUsableUnits = 0;
+    function fillInput(unit, number) {
+        let field = $(`[name=${unit}]`);
+        if(field.length > 0) {
+            field.trigger('focus').trigger('keydown').val(number).trigger('keyup').trigger('change').blur();
+        }
+    }
 
+    function fillOptimalLevel() {
+        let availableUnits = {};
+        
+        // Zczytujemy dostępne jednostki na świeżo z ekranu gry
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -142,25 +149,21 @@
                 if (available > uSet.max) available = uSet.max;
 
                 availableUnits[unit] = available;
-                totalUsableUnits += available;
             } else {
                 availableUnits[unit] = 0;
             }
         });
 
-        // WYKRYWANIE PRAWIDŁOWYCH POZIOMÓW BEZPOŚREDNIO Z GRY
+        // Weryfikacja faktycznie wolnych poziomów z logiki Plemion
         let availableLevels = [];
-
         if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
             let opts = window.ScavengeScreen.village.options;
             Object.values(opts).forEach(opt => {
-                // Jeśli poziom jest zbadany (nie is_locked) i nie wędrują już do niego wojska (nie scavenging_in_progress)
                 if (opt.is_locked === false && opt.scavenging_in_progress === false) {
-                    availableLevels.push(opt.base.id - 1); // Zapisujemy indeks: 0, 1, 2, lub 3
+                    availableLevels.push(opt.base.id - 1);
                 }
             });
         } else {
-            // W razie braku nowszych funkcji po stronie Plemion, fallback na starą metodę (szuka przycisku)
             $('.scavenge-option').each(function(index) {
                 if ($(this).find('.free_send_button').length > 0) {
                     availableLevels.push(index);
@@ -168,96 +171,56 @@
             });
         }
         
-        // Upewniamy się, że lecimy od najmniejszego poziomu do największego
         availableLevels.sort((a, b) => a - b);
 
-        // Odrzucamy 1. poziom, o ile jest polecenie "Pomiń Leniwe" i mamy jakikolwiek inny poziom
-        if (settings.global.skip_level_1 === 1 && availableLevels.includes(0) && availableLevels.length > 1) {
-            availableLevels = availableLevels.filter(lvl => lvl !== 0);
+        // Odrzucenie 1. poziomu z ustawień (z zabezpieczeniem jak w oryginale)
+        if (settings.global.skip_level_1 === 1) {
+            if (availableLevels.includes(0) && availableLevels.length > 1) {
+                availableLevels = availableLevels.filter(lvl => lvl !== 0);
+            } else if (availableLevels.length === 1 && availableLevels[0] === 0) {
+                UI.ErrorMessage('Został tylko 1 poziom, a w ustawieniach kazałeś go pomijać.', 3000);
+                return;
+            }
         }
-
-        let html = `<strong>Gotowe do drogi (po cięciach):</strong><br><ul style="list-style-type:none; padding-left:0; margin: 5px 0;">`;
-        if (totalUsableUnits === 0) {
-            html += `<li><i>Brak wojsk (lub blokują je ustawienia).</i></li>`;
-        } else {
-            units.forEach(unit => {
-                if(availableUnits[unit] > 0) {
-                    html += `<li style="display:inline-block; margin-right:10px;"><img src="${window.image_base}unit/unit_${unit}.png" style="width:14px; height:14px; vertical-align:middle;"> <b>${availableUnits[unit]}</b></li>`;
-                }
-            });
-        }
-        html += `</ul>`;
 
         if (availableLevels.length === 0) {
-            html += `<div style="color:red; font-weight:bold; font-size: 12px; text-align:center; padding: 10px 0;">Brak wolnych poziomów!</div>`;
-            $('#scav_action_area').html(html);
-        } else {
-            let packs = [15, 6, 3, 2];
-            let levelNames = ["Leniwe (1)", "Skromne (2)", "Sprytne (3)", "Wielkie (4)"];
-            let activeWeights = [];
-            
-            availableLevels.forEach(lvlIndex => {
-                activeWeights.push({ weight: packs[lvlIndex], name: levelNames[lvlIndex] });
-            });
-            
-            let currentTotalWeight = activeWeights.reduce((a, b) => a + b.weight, 0);
+            UI.ErrorMessage('Brak wolnych poziomów!', 2000);
+            return;
+        }
 
-            html += `<div style="margin-top: 10px;"><strong>Rozdziel (Równy czas):</strong></div>`;
-            activeWeights.forEach((lvl) => {
-                html += `
-                    <div style="border:1px solid #c1a264; padding:5px; margin-bottom:5px; background:#f4e4c1; border-radius:4px;">
-                        <button class="btn fill-level-btn" data-weight="${lvl.weight}" style="width:100%; padding:6px; font-size:11px; font-weight:bold; cursor:pointer;">
-                            Wypełnij: ${lvl.name}
-                        </button>
-                    </div>
-                `;
-            });
+        // Kalkulacja proporcji (dokładnie jak w oryginale dla równego czasu)
+        let packs = [15, 6, 3, 2];
+        let totalWeight = availableLevels.reduce((sum, lvl) => sum + packs[lvl], 0);
+        let targetLvl = availableLevels[availableLevels.length - 1]; // Wybieramy najwyższy możliwy
+        let weight = packs[targetLvl];
+        let ratio = weight / totalWeight;
 
-            $('#scav_action_area').html(html);
+        let assignedAmounts = {};
+        let currentCapacity = 0;
 
-            function fillInput(unit, number) {
-                let field = $(`[name=${unit}]`);
-                if(field.length > 0) {
-                    field.trigger('focus').trigger('keydown').val(number).trigger('keyup').trigger('change').blur();
-                }
+        units.forEach(unit => {
+            if (availableUnits[unit] > 0) {
+                // Jeśli to ostatni poziom w kolejce, bierzemy po prostu 100% tego co jest, żeby uniknąć gubienia resztek w ułamkach
+                let amount = (availableLevels.length === 1) ? availableUnits[unit] : Math.round(availableUnits[unit] * ratio);
+                assignedAmounts[unit] = amount;
+                currentCapacity += amount * unitsCapacity[unit];
+            } else {
+                assignedAmounts[unit] = 0;
             }
+        });
 
-            let dynamicWeight = currentTotalWeight;
-
-            $('.fill-level-btn').off('click').on('click', function() {
-                let w = parseFloat($(this).attr('data-weight'));
-                let ratio = w / dynamicWeight;
-                
-                let assignedAmounts = {};
-                let currentCapacity = 0;
-
-                units.forEach(unit => {
-                    if (availableUnits[unit] > 0) {
-                        let amount = Math.round(availableUnits[unit] * ratio);
-                        assignedAmounts[unit] = amount;
-                        currentCapacity += amount * unitsCapacity[unit];
-                    } else {
-                        assignedAmounts[unit] = 0;
-                    }
-                });
-
-                let maxRes = settings.global.max_ressources;
-                if (maxRes > 0 && currentCapacity > maxRes) {
-                    let capRatio = maxRes / currentCapacity;
-                    units.forEach(unit => {
-                        assignedAmounts[unit] = Math.floor(assignedAmounts[unit] * capRatio);
-                    });
-                }
-                
-                units.forEach(unit => {
-                    fillInput(unit, assignedAmounts[unit]);
-                    availableUnits[unit] -= assignedAmounts[unit]; 
-                });
-                
-                dynamicWeight -= w; 
-                $(this).parent().fadeOut(200);
+        // Ewentualne cięcie pod max_ressources
+        let maxRes = settings.global.max_ressources;
+        if (maxRes > 0 && currentCapacity > maxRes) {
+            let capRatio = maxRes / currentCapacity;
+            units.forEach(unit => {
+                assignedAmounts[unit] = Math.floor(assignedAmounts[unit] * capRatio);
             });
         }
+        
+        units.forEach(unit => { fillInput(unit, assignedAmounts[unit]); });
+        
+        UI.SuccessMessage(`Przygotowano: Poziom ${targetLvl + 1}`, 1500);
     }
 
     renderUI();

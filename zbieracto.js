@@ -1,8 +1,7 @@
-javascript:
 /*
-    Asystent Zbieracza z GUI i Ustawieniami v3.5
-    - Bezstanowy silnik: zawsze dynamicznie wylicza najwyższy dostępny poziom.
-    - Mobile Fix: kompatybilność z wersją mobilną i aplikacją Plemion (.units-entry-all).
+    Asystent Zbieracza z GUI i Ustawieniami v4.0 (Kompaktowy & Mobile)
+    - Tryb kompaktowy: ustawienia są zwijane, aby nie zasłaniać ekranu na telefonie.
+    - Bulletproof Mobile Fix: wyszukiwanie ilości wojsk przez atrybuty data-unit.
 */
 
 (function() {
@@ -26,7 +25,9 @@ javascript:
     };
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
-    let saved = localStorage.getItem('TW_Scavenge_Settings_v3');
+    // Zmieniamy klucz zapisu, by wymusić czysty start po zmianie wersji
+    let saved = localStorage.getItem('TW_Scavenge_Settings_v4'); 
+    if(!saved) saved = localStorage.getItem('TW_Scavenge_Settings_v3');
     let settings = saved ? JSON.parse(saved) : defaultSettings;
 
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
@@ -35,54 +36,60 @@ javascript:
     });
 
     function renderUI() {
+        // Zmieniony CSS: width 90% (max 320px), wyśrodkowany na górze ekranu
         let html = `
-            <div id="scavenge_gui_window" style="position:fixed; top:80px; right:20px; width: 320px; background:#e3d5b3; border:2px solid #7d510f; padding:12px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 10px rgba(0,0,0,0.5); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
+            <div id="scavenge_gui_window" style="position:fixed; top:70px; left:50%; transform:translateX(-50%); width:90%; max-width:320px; background:#e3d5b3; border:2px solid #7d510f; padding:10px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.6); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
                 
-                <div style="display:flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #7d510f; padding-bottom: 5px; margin-bottom: 10px;">
-                    <h3 style="margin:0; font-size: 14px; color: #402000;">Asystent Zbieracza</h3>
-                    <button id="scav_close" style="background:none; border:none; font-size:20px; cursor:pointer; font-weight:bold; color: #7d510f; line-height:1;">&times;</button>
+                <div style="display:flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #7d510f; padding-bottom: 5px; margin-bottom: 8px;">
+                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v4.0</h3>
+                    <div>
+                        <button id="scav_toggle_settings" style="background:none; border:none; font-size:16px; cursor:pointer; color:#7d510f;" title="Ustawienia">⚙️</button>
+                        <button id="scav_close" style="background:none; border:none; font-size:22px; cursor:pointer; font-weight:bold; color: #7d510f; line-height:1; margin-left:5px;">&times;</button>
+                    </div>
                 </div>
                 
-                <div style="font-size: 11px; margin-bottom: 10px; background: #f4e4c1; padding: 5px; border: 1px solid #c1a264; border-radius: 4px;">
-                    <strong>Ustawienia Globalne:</strong><br>
-                    <label style="cursor:pointer; display:block; margin-top:3px;"><input type="checkbox" id="scav_archers" ${settings.global.archers ? 'checked' : ''}> Gramy z łucznikami (Świat z łukami)</label>
-                    <label style="cursor:pointer; display:block; margin-top:3px;"><input type="checkbox" id="scav_skip_1" ${settings.global.skip_level_1 ? 'checked' : ''}> Pomiń poziom 1 (Leniwe zbieractwo)</label>
-                    <label style="display:block; margin-top:3px;">Max sur. z jednego poziomu: <br><input type="number" id="scav_max_res" value="${settings.global.max_ressources}" style="width:80px; padding:2px; font-size:10px; margin-top:2px;"></label>
-                </div>
+                <div id="scav_settings_panel" style="display:none;">
+                    <div style="font-size: 11px; margin-bottom: 8px; background: #f4e4c1; padding: 5px; border: 1px solid #c1a264; border-radius: 4px;">
+                        <strong>Globalne:</strong><br>
+                        <label style="cursor:pointer; display:block; margin-top:3px;"><input type="checkbox" id="scav_archers" ${settings.global.archers ? 'checked' : ''}> Łucznicy</label>
+                        <label style="cursor:pointer; display:block; margin-top:3px;"><input type="checkbox" id="scav_skip_1" ${settings.global.skip_level_1 ? 'checked' : ''}> Pomiń poziom 1</label>
+                        <label style="display:block; margin-top:3px;">Max sur. z poziomu: <br><input type="number" id="scav_max_res" value="${settings.global.max_ressources}" style="width:80px; padding:2px; font-size:10px; margin-top:2px;"></label>
+                    </div>
 
-                <div style="font-size: 11px; margin-bottom: 10px;">
-                    <strong>Limity Jednostek:</strong>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 5px; font-size:10px;">
-                        <tr style="background: #c1a264;">
-                            <th style="padding: 4px; text-align:left;">Jednostka</th>
-                            <th style="padding: 4px; text-align:center;" title="Ile sztuk ma zawsze zostać w wiosce?">Zostaw</th>
-                            <th style="padding: 4px; text-align:center;" title="Maksymalnie ile sztuk wyślesz w sumie?">Max wyślij</th>
-                        </tr>
+                    <div style="font-size: 11px; margin-bottom: 10px;">
+                        <strong>Limity:</strong>
+                        <table style="width: 100%; border-collapse: collapse; margin-top: 3px; font-size:10px;">
+                            <tr style="background: #c1a264;">
+                                <th style="padding: 3px; text-align:left;">Jednostka</th>
+                                <th style="padding: 3px; text-align:center;">Zostaw</th>
+                                <th style="padding: 3px; text-align:center;">Max</th>
+                            </tr>
         `;
 
         units.forEach(unit => {
             if (!settings.global.archers && (unit === 'archer' || unit === 'marcher')) return;
             html += `
                 <tr style="border-bottom: 1px solid #c1a264;">
-                    <td style="padding: 4px;"><b>${unitNames[unit]}</b></td>
-                    <td style="text-align:center;"><input type="number" class="scav_u_untouchable" data-unit="${unit}" value="${settings.units[unit].untouchable}" style="width:50px; font-size:10px; text-align:center;"></td>
-                    <td style="text-align:center;"><input type="number" class="scav_u_max" data-unit="${unit}" value="${settings.units[unit].max}" style="width:50px; font-size:10px; text-align:center;"></td>
+                    <td style="padding: 3px;"><b>${unitNames[unit]}</b></td>
+                    <td style="text-align:center;"><input type="number" class="scav_u_untouchable" data-unit="${unit}" value="${settings.units[unit].untouchable}" style="width:40px; font-size:10px; text-align:center;"></td>
+                    <td style="text-align:center;"><input type="number" class="scav_u_max" data-unit="${unit}" value="${settings.units[unit].max}" style="width:40px; font-size:10px; text-align:center;"></td>
                 </tr>
             `;
         });
 
         html += `
-                    </table>
-                    <button id="scav_save_settings" class="btn" style="width: 100%; margin-top: 8px; padding: 5px; font-size:11px;">Zapisz ustawienia</button>
+                        </table>
+                    </div>
+                    <button id="scav_save_settings" class="btn" style="width: 100%; margin-bottom: 10px; padding: 5px; font-size:11px;">Zapisz i ukryj ustawienia</button>
+                    <hr style="border-color:#c1a264; margin: 0 0 10px 0;">
                 </div>
-                <hr style="border-color:#c1a264; margin: 10px 0;">
                 
-                <div style="text-align:center; padding: 5px 0;">
-                    <button id="scav_fill_highest" class="btn" style="width:100%; padding:10px; font-size:13px; font-weight:bold; cursor:pointer; background-color:#5c3a1b; color:white; border: 1px solid #402000; border-radius: 4px;">
-                        Wypełnij: Najwyższy Wolny
+                <div id="scav_action_panel" style="text-align:center;">
+                    <button id="scav_fill_highest" class="btn" style="width:100%; padding:12px; font-size:14px; font-weight:bold; cursor:pointer; background-color:#5c3a1b; color:white; border: 1px solid #402000; border-radius: 4px; text-shadow: 1px 1px 2px black;">
+                        🚀 Wypełnij: Najwyższy Wolny
                     </button>
                     <div style="font-size:9px; margin-top:6px; color:#7d510f;">
-                        Wciśnij -> wyślij w grze -> wciśnij ponownie.
+                        Gotowe do wysłania. Kliknij -> wyślij w grze.
                     </div>
                 </div>
             </div>
@@ -91,14 +98,17 @@ javascript:
         $('body').append(html);
         
         $('#scav_close').click(function() { $('#scavenge_gui_window').remove(); });
-        $('#scav_save_settings').click(saveSettings);
         
-        $('#scav_archers').change(function() {
-            saveSettings(false);
-            $('#scavenge_gui_window').remove();
-            renderUI();
+        // Funkcja do pokazywania/ukrywania ustawień
+        $('#scav_toggle_settings').click(function() {
+            $('#scav_settings_panel').slideToggle('fast');
         });
 
+        $('#scav_save_settings').click(function() {
+            saveSettings(true);
+            $('#scav_settings_panel').slideUp('fast'); // Po zapisie chowamy okno
+        });
+        
         $('#scav_fill_highest').click(fillOptimalLevel);
     }
 
@@ -114,10 +124,10 @@ javascript:
             settings.units[$(this).data('unit')].max = parseInt($(this).val()) || 99999;
         });
 
-        localStorage.setItem('TW_Scavenge_Settings_v3', JSON.stringify(settings));
+        localStorage.setItem('TW_Scavenge_Settings_v4', JSON.stringify(settings));
         
         if (showMessage) {
-            UI.SuccessMessage('Ustawienia zapisane!', 2000);
+            UI.SuccessMessage('Ustawienia zapisane!', 1500);
         }
     }
 
@@ -137,44 +147,54 @@ javascript:
                 return;
             }
 
-            let field = $(`[name=${unit}]`);
-            if (field.length > 0) {
-                // MOBILE FIX: Używamy querySelector zamiast sztywnego indexu children[1]
-                let entryNode = field[0].parentNode.querySelector('.units-entry-all');
-                
-                if (entryNode) {
-                    let match = entryNode.innerText.match(/\d+/);
-                    let available = match ? parseInt(match[0]) : 0;
-                    
-                    let uSet = settings.units[unit];
-                    if (available > uSet.untouchable) available -= uSet.untouchable;
-                    else available = 0;
-                    
-                    if (available > uSet.max) available = uSet.max;
-
-                    availableUnits[unit] = available;
-                } else {
-                    availableUnits[unit] = 0;
-                }
+            // MOBILNY FIX (APP & DESKTOP):
+            // Szukamy linku z data-unit, który zawiera cyfrę. To działa zawsze, niezależnie od urządzenia.
+            let available = 0;
+            let allLink = $(`a.units-entry-all[data-unit="${unit}"]`);
+            
+            if (allLink.length > 0) {
+                let match = allLink.text().match(/\d+/);
+                if (match) available = parseInt(match[0]);
             } else {
-                availableUnits[unit] = 0;
+                // Ekstremalne koło ratunkowe, gdyby gra zmieniła klasy całkowicie
+                let field = $(`[name=${unit}]`);
+                if (field.length > 0) {
+                    let parentText = field.parent().text();
+                    let match = parentText.match(/\((\d+)\)/);
+                    if (match) available = parseInt(match[1]);
+                }
             }
+            
+            let uSet = settings.units[unit];
+            if (available > uSet.untouchable) available -= uSet.untouchable;
+            else available = 0;
+            
+            if (available > uSet.max) available = uSet.max;
+
+            availableUnits[unit] = available;
         });
 
         let availableLevels = [];
-        if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
-            let opts = window.ScavengeScreen.village.options;
-            Object.values(opts).forEach(opt => {
-                if (opt.is_locked === false && opt.scavenging_in_progress === false) {
-                    availableLevels.push(opt.base.id - 1);
-                }
-            });
-        } else {
-            $('.scavenge-option').each(function(index) {
-                if ($(this).find('.free_send_button').length > 0) {
-                    availableLevels.push(index);
-                }
-            });
+        
+        try {
+            if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
+                let opts = window.ScavengeScreen.village.options;
+                Object.values(opts).forEach(opt => {
+                    if (opt.is_locked === false && opt.scavenging_in_progress === false) {
+                        availableLevels.push(opt.base.id - 1);
+                    }
+                });
+            } else {
+                // Mobile App Fallback dla poziomów
+                $('.scavenge-option').each(function(index) {
+                    let btn = $(this).find('.btn, .free_send_button');
+                    if (btn.length > 0 && !btn.hasClass('btn-disabled')) {
+                        availableLevels.push(index);
+                    }
+                });
+            }
+        } catch(e) {
+            console.error("Scavenge levels error: ", e);
         }
         
         availableLevels.sort((a, b) => a - b);
@@ -183,7 +203,7 @@ javascript:
             if (availableLevels.includes(0) && availableLevels.length > 1) {
                 availableLevels = availableLevels.filter(lvl => lvl !== 0);
             } else if (availableLevels.length === 1 && availableLevels[0] === 0) {
-                UI.ErrorMessage('Został tylko 1 poziom, a w ustawieniach kazałeś go pomijać.', 3000);
+                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a kazałeś go pomijać!', 3000);
                 return;
             }
         }

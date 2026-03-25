@@ -1,6 +1,6 @@
 /*
-    Asystent Zbieracza z GUI i Ustawieniami v3.2
-    Pełna wersja: równe rozkładanie czasu, brak resztek, obsługa max_ressources.
+    Asystent Zbieracza z GUI i Ustawieniami v3.3
+    Poprawione: Ignorowanie ZABLOKOWANYCH i AKTUALNIE ZAJĘTYCH poziomów.
 */
 
 (function() {
@@ -31,7 +31,7 @@
     let saved = localStorage.getItem('TW_Scavenge_Settings_v3');
     let settings = saved ? JSON.parse(saved) : defaultSettings;
 
-    // Zabezpieczenie brakujących kluczy przy aktualizacji ze starszych wersji
+    // Zabezpieczenie brakujących kluczy przy aktualizacji
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
     units.forEach(u => {
         if (!settings.units[u]) settings.units[u] = { untouchable: 0, max: 99999 };
@@ -64,7 +64,6 @@
                         </tr>
         `;
 
-        // Generowanie wierszy dla każdej jednostki
         units.forEach(unit => {
             if (!settings.global.archers && (unit === 'archer' || unit === 'marcher')) return;
             html += `
@@ -87,14 +86,11 @@
             </div>
         `;
 
-        // Wstawienie HTML do strony
         $('body').append(html);
         
-        // Bindowanie zdarzeń
         $('#scav_close').click(function() { $('#scavenge_gui_window').remove(); });
         $('#scav_save_settings').click(saveSettings);
         
-        // Zmiana archers na żywo przeładowuje widok tabelki
         $('#scav_archers').change(function() {
             saveSettings(false);
             $('#scavenge_gui_window').remove();
@@ -104,7 +100,6 @@
         calculateAndRenderActions();
     }
 
-    // Funkcja zapisu
     function saveSettings(showMessage = true) {
         settings.global.archers = $('#scav_archers').is(':checked') ? 1 : 0;
         settings.global.skip_level_1 = $('#scav_skip_1').is(':checked') ? 1 : 0;
@@ -125,12 +120,10 @@
         }
     }
 
-    // Funkcja przeliczająca dostępne wojsko i renderująca przyciski rozkładu
     function calculateAndRenderActions() {
         let availableUnits = {};
         let totalUsableUnits = 0;
 
-        // Filtrowanie i obliczanie dostępnych jednostek na podstawie DOM i ustawień
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -155,9 +148,33 @@
             }
         });
 
-        let unfree_levels = document.getElementsByClassName('btn btn-default free_send_button btn-disabled');
-        let unlocked_levels = document.getElementsByClassName('btn btn-default free_send_button');
-        let free_levels = unlocked_levels.length - unfree_levels.length;
+        // WYKRYWANIE PRAWIDŁOWYCH POZIOMÓW BEZPOŚREDNIO Z GRY
+        let availableLevels = [];
+
+        if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
+            let opts = window.ScavengeScreen.village.options;
+            Object.values(opts).forEach(opt => {
+                // Jeśli poziom jest zbadany (nie is_locked) i nie wędrują już do niego wojska (nie scavenging_in_progress)
+                if (opt.is_locked === false && opt.scavenging_in_progress === false) {
+                    availableLevels.push(opt.base.id - 1); // Zapisujemy indeks: 0, 1, 2, lub 3
+                }
+            });
+        } else {
+            // W razie braku nowszych funkcji po stronie Plemion, fallback na starą metodę (szuka przycisku)
+            $('.scavenge-option').each(function(index) {
+                if ($(this).find('.free_send_button').length > 0) {
+                    availableLevels.push(index);
+                }
+            });
+        }
+        
+        // Upewniamy się, że lecimy od najmniejszego poziomu do największego
+        availableLevels.sort((a, b) => a - b);
+
+        // Odrzucamy 1. poziom, o ile jest polecenie "Pomiń Leniwe" i mamy jakikolwiek inny poziom
+        if (settings.global.skip_level_1 === 1 && availableLevels.includes(0) && availableLevels.length > 1) {
+            availableLevels = availableLevels.filter(lvl => lvl !== 0);
+        }
 
         let html = `<strong>Gotowe do drogi (po cięciach):</strong><br><ul style="list-style-type:none; padding-left:0; margin: 5px 0;">`;
         if (totalUsableUnits === 0) {
@@ -171,7 +188,7 @@
         }
         html += `</ul>`;
 
-        if (free_levels === 0) {
+        if (availableLevels.length === 0) {
             html += `<div style="color:red; font-weight:bold; font-size: 12px; text-align:center; padding: 10px 0;">Brak wolnych poziomów!</div>`;
             $('#scav_action_area').html(html);
         } else {
@@ -179,16 +196,14 @@
             let levelNames = ["Leniwe (1)", "Skromne (2)", "Sprytne (3)", "Wielkie (4)"];
             let activeWeights = [];
             
-            let startLevel = (settings.global.skip_level_1 === 1 && free_levels > 1) ? 1 : 0;
-            
-            for (let i = startLevel; i < free_levels + startLevel && i < 4; i++) {
-                activeWeights.push({ weight: packs[i], name: levelNames[i] });
-            }
+            availableLevels.forEach(lvlIndex => {
+                activeWeights.push({ weight: packs[lvlIndex], name: levelNames[lvlIndex] });
+            });
             
             let currentTotalWeight = activeWeights.reduce((a, b) => a + b.weight, 0);
 
             html += `<div style="margin-top: 10px;"><strong>Rozdziel (Równy czas):</strong></div>`;
-            activeWeights.forEach((lvl, index) => {
+            activeWeights.forEach((lvl) => {
                 html += `
                     <div style="border:1px solid #c1a264; padding:5px; margin-bottom:5px; background:#f4e4c1; border-radius:4px;">
                         <button class="btn fill-level-btn" data-weight="${lvl.weight}" style="width:100%; padding:6px; font-size:11px; font-weight:bold; cursor:pointer;">
@@ -200,7 +215,6 @@
 
             $('#scav_action_area').html(html);
 
-            // Funkcja wpisująca wartości do Plemion
             function fillInput(unit, number) {
                 let field = $(`[name=${unit}]`);
                 if(field.length > 0) {
@@ -210,7 +224,6 @@
 
             let dynamicWeight = currentTotalWeight;
 
-            // Główna logika rozdzielania wojsk po kliknięciu
             $('.fill-level-btn').off('click').on('click', function() {
                 let w = parseFloat($(this).attr('data-weight'));
                 let ratio = w / dynamicWeight;
@@ -218,7 +231,6 @@
                 let assignedAmounts = {};
                 let currentCapacity = 0;
 
-                // Obliczanie proporcji dla danego kliknięcia
                 units.forEach(unit => {
                     if (availableUnits[unit] > 0) {
                         let amount = Math.round(availableUnits[unit] * ratio);
@@ -229,7 +241,6 @@
                     }
                 });
 
-                // Sprawdzenie i ewentualne cięcie limitu surowców
                 let maxRes = settings.global.max_ressources;
                 if (maxRes > 0 && currentCapacity > maxRes) {
                     let capRatio = maxRes / currentCapacity;
@@ -238,20 +249,17 @@
                     });
                 }
                 
-                // Fizyczne wpisanie do inputów i odjęcie użytych wojsk od puli
                 units.forEach(unit => {
                     fillInput(unit, assignedAmounts[unit]);
                     availableUnits[unit] -= assignedAmounts[unit]; 
                 });
                 
-                // Aktualizacja wagi, by kolejny klik użył 100% z tego, co zostało
                 dynamicWeight -= w; 
                 $(this).parent().fadeOut(200);
             });
         }
     }
 
-    // Uruchomienie interfejsu
     renderUI();
 
 })();

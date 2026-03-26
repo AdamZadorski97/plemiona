@@ -1,6 +1,10 @@
+javascript:
 /*
-    Asystent Zbieracza v4.2 (Ostateczny silnik matematyczny)
+    Asystent Zbieracza z GUI i Ustawieniami v4.1 (Kompaktowy & Mobile)
+    - 100% oryginalny silnik matematyczny PabloCanaletto.
+    - Gwarancja wysłania wszystkich jednostek na ostatnim poziomie.
 */
+
 (function() {
     if (window.location.href.indexOf('screen=place') === -1 || window.location.href.indexOf('mode=scavenge') === -1) {
         UI.InfoMessage('Skrypt działa tylko w placu w zakładce zbieractwo!', 3000, 'error');
@@ -23,6 +27,7 @@
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
     let saved = localStorage.getItem('TW_Scavenge_Settings_v4'); 
+    if(!saved) saved = localStorage.getItem('TW_Scavenge_Settings_v3');
     let settings = saved ? JSON.parse(saved) : defaultSettings;
 
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
@@ -35,7 +40,7 @@
             <div id="scavenge_gui_window" style="position:fixed; top:70px; left:50%; transform:translateX(-50%); width:90%; max-width:320px; background:#e3d5b3; border:2px solid #7d510f; padding:10px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.6); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
                 
                 <div style="display:flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #7d510f; padding-bottom: 5px; margin-bottom: 8px;">
-                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v4.2</h3>
+                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v4.1</h3>
                     <div>
                         <button id="scav_toggle_settings" style="background:none; border:none; font-size:16px; cursor:pointer; color:#7d510f;" title="Ustawienia">⚙️</button>
                         <button id="scav_close" style="background:none; border:none; font-size:22px; cursor:pointer; font-weight:bold; color: #7d510f; line-height:1; margin-left:5px;">&times;</button>
@@ -128,6 +133,7 @@
     function fillOptimalLevel() {
         let availableUnits = {};
         
+        // Solidne sczytywanie wojska - odporne na aplikację mobilną
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -155,44 +161,42 @@
             availableUnits[unit] = available;
         });
 
-        let availableLevels = [];
+        // Pobieranie ZBADANYCH i AKTUALNIE WOLNYCH poziomów (dokładnie jak w oryginale)
+        let unlocked_levels = 0;
+        let free_levels = 0;
 
         if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
             Object.values(window.ScavengeScreen.village.options).forEach(opt => {
-                if (opt.is_locked === false && opt.scavenging_in_progress === false) {
-                    availableLevels.push(opt.base.id - 1);
+                if (opt.is_locked === false) {
+                    unlocked_levels++;
+                    if (opt.scavenging_in_progress === false) free_levels++;
                 }
             });
         } else {
-            $('.scavenge-option').each(function(index) {
-                let btn = $(this).find('.free_send_button');
-                if (btn.length > 0 && !btn.hasClass('btn-disabled')) {
-                    availableLevels.push(index);
+            $('.scavenge-option').each(function() {
+                let btn = $(this).find('.btn, .free_send_button');
+                if (btn.length > 0) {
+                    unlocked_levels++;
+                    if (!btn.hasClass('btn-disabled')) free_levels++;
                 }
             });
         }
-        
-        availableLevels.sort((a, b) => a - b);
 
-        if (settings.global.skip_level_1 === 1) {
-            if (availableLevels.includes(0) && availableLevels.length > 1) {
-                availableLevels = availableLevels.filter(lvl => lvl !== 0);
-            } else if (availableLevels.length === 1 && availableLevels[0] === 0) {
-                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a kazałeś go pomijać!', 3000);
-                return;
-            }
-        }
-
-        if (availableLevels.length === 0) {
+        if (free_levels === 0) {
             UI.ErrorMessage('Brak wolnych poziomów!', 2000);
             return;
         }
 
-        let packs = [15, 6, 3, 2];
-        let left_packs = availableLevels.reduce((sum, lvl) => sum + packs[lvl], 0);
-        let targetLvl = availableLevels[availableLevels.length - 1]; 
-        let packs_now = packs[targetLvl];
-        let ratio = packs_now / left_packs;
+        // --- MATEMATYKA Z ORYGINALNEGO SKRYPTU ---
+        let left_packs = 0;
+        let packs_now = 0;
+
+        if(free_levels >= 1 && settings.global.skip_level_1 == 0){ packs_now = 15; left_packs += 15; }
+        if(free_levels >= 2){ packs_now = 6; left_packs += 6; }
+        if(free_levels >= 3){ packs_now = 3; left_packs += 3; }
+        if(free_levels == 4){ packs_now = 2; left_packs += 2; }
+
+        let ratio = (left_packs > 0) ? (packs_now / left_packs) : 1;
 
         let assignedAmounts = {};
         let currentCapacity = 0;
@@ -200,10 +204,11 @@
         units.forEach(unit => {
             if (availableUnits[unit] > 0) {
                 let amount = 0;
-                if (availableLevels.length === 1) {
-                    amount = availableUnits[unit]; 
+                // GWARANCJA wysłania całości na ostatnim kliknięciu
+                if (free_levels === 1 || (free_levels === 2 && settings.global.skip_level_1 === 1)) {
+                    amount = availableUnits[unit];
                 } else {
-                    amount = Math.floor(availableUnits[unit] * ratio);
+                    amount = Math.floor(availableUnits[unit] * ratio); // Użycie klasycznego Math.floor jak u Pablo
                 }
                 
                 assignedAmounts[unit] = amount;
@@ -213,6 +218,7 @@
             }
         });
 
+        // Limiter surowców (jeśli ustawiony na coś realnego)
         let maxRes = settings.global.max_ressources;
         if (maxRes > 0 && currentCapacity > maxRes) {
             let capRatio = maxRes / currentCapacity;
@@ -223,7 +229,7 @@
         
         units.forEach(unit => { fillInput(unit, assignedAmounts[unit]); });
         
-        UI.SuccessMessage(`Przygotowano: Poziom ${targetLvl + 1}`, 1500);
+        UI.SuccessMessage(`Przygotowano jednostki!`, 1500);
     }
 
     renderUI();

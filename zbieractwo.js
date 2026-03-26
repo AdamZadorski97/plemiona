@@ -1,7 +1,12 @@
 /*
-    Asystent Zbieracza v4.2 (Ostateczny silnik matematyczny)
+    Asystent Zbieracza v5.0 (Kuloodporny)
+    - Zabezpieczenie przed błędami zapisu (localStorage).
+    - Czysta matematyka z oryginalnego skryptu.
 */
+
 (function() {
+    console.log("Skrypt Zbieraka v5.0 ładuje się...");
+
     if (window.location.href.indexOf('screen=place') === -1 || window.location.href.indexOf('mode=scavenge') === -1) {
         UI.InfoMessage('Skrypt działa tylko w placu w zakładce zbieractwo!', 3000, 'error');
         return;
@@ -22,8 +27,16 @@
     };
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
-    let saved = localStorage.getItem('TW_Scavenge_Settings_v4'); 
-    let settings = saved ? JSON.parse(saved) : defaultSettings;
+    // KULOODPORNE ODCZYTYWANIE ZAPISU
+    let saved = localStorage.getItem('TW_Scavenge_Settings_v5'); 
+    let settings;
+    try {
+        settings = saved ? JSON.parse(saved) : defaultSettings;
+        if (!settings || !settings.global) settings = defaultSettings;
+    } catch(e) {
+        console.warn("Błąd odczytu ustawień Zbieraka. Przywracam domyślne.");
+        settings = defaultSettings;
+    }
 
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
     units.forEach(u => {
@@ -35,7 +48,7 @@
             <div id="scavenge_gui_window" style="position:fixed; top:70px; left:50%; transform:translateX(-50%); width:90%; max-width:320px; background:#e3d5b3; border:2px solid #7d510f; padding:10px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.6); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
                 
                 <div style="display:flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #7d510f; padding-bottom: 5px; margin-bottom: 8px;">
-                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v4.2</h3>
+                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v5.0</h3>
                     <div>
                         <button id="scav_toggle_settings" style="background:none; border:none; font-size:16px; cursor:pointer; color:#7d510f;" title="Ustawienia">⚙️</button>
                         <button id="scav_close" style="background:none; border:none; font-size:22px; cursor:pointer; font-weight:bold; color: #7d510f; line-height:1; margin-left:5px;">&times;</button>
@@ -114,7 +127,7 @@
             settings.units[$(this).data('unit')].max = parseInt($(this).val()) || 99999;
         });
 
-        localStorage.setItem('TW_Scavenge_Settings_v4', JSON.stringify(settings));
+        localStorage.setItem('TW_Scavenge_Settings_v5', JSON.stringify(settings));
         if (showMessage) UI.SuccessMessage('Ustawienia zapisane!', 1500);
     }
 
@@ -128,6 +141,7 @@
     function fillOptimalLevel() {
         let availableUnits = {};
         
+        // Zczytywanie dostępnego wojska z ekranu
         units.forEach(unit => {
             if (settings.global.archers === 0 && (unit === 'archer' || unit === 'marcher')) {
                 availableUnits[unit] = 0;
@@ -155,8 +169,8 @@
             availableUnits[unit] = available;
         });
 
+        // Weryfikacja wolnych poziomów
         let availableLevels = [];
-
         if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
             Object.values(window.ScavengeScreen.village.options).forEach(opt => {
                 if (opt.is_locked === false && opt.scavenging_in_progress === false) {
@@ -178,7 +192,7 @@
             if (availableLevels.includes(0) && availableLevels.length > 1) {
                 availableLevels = availableLevels.filter(lvl => lvl !== 0);
             } else if (availableLevels.length === 1 && availableLevels[0] === 0) {
-                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a kazałeś go pomijać!', 3000);
+                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a w opcjach kazałeś go pomijać!', 3000);
                 return;
             }
         }
@@ -188,6 +202,7 @@
             return;
         }
 
+        // Czysta matematyka proporcji ułamkowych
         let packs = [15, 6, 3, 2];
         let left_packs = availableLevels.reduce((sum, lvl) => sum + packs[lvl], 0);
         let targetLvl = availableLevels[availableLevels.length - 1]; 
@@ -200,6 +215,7 @@
         units.forEach(unit => {
             if (availableUnits[unit] > 0) {
                 let amount = 0;
+                // Ważne: Jeśli to ostatni wolny poziom z dostępnych, wysyłamy 100% (gwarancja braku resztek)
                 if (availableLevels.length === 1) {
                     amount = availableUnits[unit]; 
                 } else {
@@ -213,6 +229,7 @@
             }
         });
 
+        // Ewentualne ucinanie jednostek pod limit surowców z ustawień
         let maxRes = settings.global.max_ressources;
         if (maxRes > 0 && currentCapacity > maxRes) {
             let capRatio = maxRes / currentCapacity;
@@ -221,6 +238,7 @@
             });
         }
         
+        // Finalne wpisywanie wojsk w pola
         units.forEach(unit => { fillInput(unit, assignedAmounts[unit]); });
         
         UI.SuccessMessage(`Przygotowano: Poziom ${targetLvl + 1}`, 1500);

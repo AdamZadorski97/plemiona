@@ -1,9 +1,6 @@
 /*
-    Asystent Zbieracza v5.1 (Premium Fix)
-    - Naprawiono błąd "Brak wolnych poziomów" przy włączonym bonusie premium (+20%).
-    - Uproszczone i skuteczniejsze wyszukiwanie przycisków w DOM.
+    Asystent Zbieracza v4.2 (Ostateczny silnik matematyczny)
 */
-
 (function() {
     if (window.location.href.indexOf('screen=place') === -1 || window.location.href.indexOf('mode=scavenge') === -1) {
         UI.InfoMessage('Skrypt działa tylko w placu w zakładce zbieractwo!', 3000, 'error');
@@ -25,14 +22,8 @@
     };
     units.forEach(u => defaultSettings.units[u] = { untouchable: 0, max: 99999 });
 
-    let saved = localStorage.getItem('TW_Scavenge_Settings_v5'); 
-    let settings;
-    try {
-        settings = saved ? JSON.parse(saved) : defaultSettings;
-        if (!settings || !settings.global) settings = defaultSettings;
-    } catch(e) {
-        settings = defaultSettings;
-    }
+    let saved = localStorage.getItem('TW_Scavenge_Settings_v4'); 
+    let settings = saved ? JSON.parse(saved) : defaultSettings;
 
     if (typeof settings.global.max_ressources === 'undefined') settings.global.max_ressources = 999999;
     units.forEach(u => {
@@ -44,7 +35,7 @@
             <div id="scavenge_gui_window" style="position:fixed; top:70px; left:50%; transform:translateX(-50%); width:90%; max-width:320px; background:#e3d5b3; border:2px solid #7d510f; padding:10px; z-index:99999; border-radius:8px; box-shadow: 0px 4px 15px rgba(0,0,0,0.6); font-family: Verdana, Arial; max-height: 85vh; overflow-y: auto;">
                 
                 <div style="display:flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #7d510f; padding-bottom: 5px; margin-bottom: 8px;">
-                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v5.1</h3>
+                    <h3 style="margin:0; font-size: 14px; color: #402000; font-weight:bold;">Zbierak v4.2</h3>
                     <div>
                         <button id="scav_toggle_settings" style="background:none; border:none; font-size:16px; cursor:pointer; color:#7d510f;" title="Ustawienia">⚙️</button>
                         <button id="scav_close" style="background:none; border:none; font-size:22px; cursor:pointer; font-weight:bold; color: #7d510f; line-height:1; margin-left:5px;">&times;</button>
@@ -123,7 +114,7 @@
             settings.units[$(this).data('unit')].max = parseInt($(this).val()) || 99999;
         });
 
-        localStorage.setItem('TW_Scavenge_Settings_v5', JSON.stringify(settings));
+        localStorage.setItem('TW_Scavenge_Settings_v4', JSON.stringify(settings));
         if (showMessage) UI.SuccessMessage('Ustawienia zapisane!', 1500);
     }
 
@@ -164,15 +155,22 @@
             availableUnits[unit] = available;
         });
 
-        // POPRAWIONE WYSZUKIWANIE POZIOMÓW (Zwykłe i Premium)
         let availableLevels = [];
-        $('.scavenge-option').each(function(index) {
-            // Szuka zarówno klasycznego przycisku darmowego jak i premium
-            let btn = $(this).find('.free_send_button, .premium_send_button');
-            if (btn.length > 0 && !btn.hasClass('btn-disabled')) {
-                availableLevels.push(index);
-            }
-        });
+
+        if (typeof window.ScavengeScreen !== 'undefined' && window.ScavengeScreen.village && window.ScavengeScreen.village.options) {
+            Object.values(window.ScavengeScreen.village.options).forEach(opt => {
+                if (opt.is_locked === false && opt.scavenging_in_progress === false) {
+                    availableLevels.push(opt.base.id - 1);
+                }
+            });
+        } else {
+            $('.scavenge-option').each(function(index) {
+                let btn = $(this).find('.free_send_button');
+                if (btn.length > 0 && !btn.hasClass('btn-disabled')) {
+                    availableLevels.push(index);
+                }
+            });
+        }
         
         availableLevels.sort((a, b) => a - b);
 
@@ -180,7 +178,7 @@
             if (availableLevels.includes(0) && availableLevels.length > 1) {
                 availableLevels = availableLevels.filter(lvl => lvl !== 0);
             } else if (availableLevels.length === 1 && availableLevels[0] === 0) {
-                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a w opcjach kazałeś go pomijać!', 3000);
+                UI.ErrorMessage('Został tylko 1 poziom (Leniwe), a kazałeś go pomijać!', 3000);
                 return;
             }
         }
